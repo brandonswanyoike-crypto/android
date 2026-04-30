@@ -30,14 +30,13 @@ fun RegistrationScreen(navController: NavController, modifier: Modifier = Modifi
     var phone by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
-    var selectedClub by remember { mutableStateOf(ClubData.availableClubs[0]) }
+    var selectedClub by remember { mutableStateOf(if (ClubData.availableClubs.isNotEmpty()) ClubData.availableClubs[0] else "") }
     var selectedRole by remember { mutableStateOf("Member") }
     var expanded by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
     
     val context = LocalContext.current
-    val auth = FirebaseAuth.getInstance()
-    val database = FirebaseDatabase.getInstance().getReference("Users")
+    val auth = remember { FirebaseAuth.getInstance() }
 
     Column(
         modifier = modifier
@@ -67,15 +66,40 @@ fun RegistrationScreen(navController: NavController, modifier: Modifier = Modifi
             Text("Patron")
         }
 
-        OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Full Name") }, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(value = email, onValueChange = { email = it }, label = { Text("Email Address") }, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(
+            value = name,
+            onValueChange = { name = it },
+            label = { Text("Full Name") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+
+        OutlinedTextField(
+            value = email,
+            onValueChange = { email = it },
+            label = { Text("Email Address") },
+            modifier = Modifier.fillMaxWidth(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+            singleLine = true
+        )
+
+        OutlinedTextField(
+            value = phone,
+            onValueChange = { phone = it },
+            label = { Text("Phone Number") },
+            modifier = Modifier.fillMaxWidth(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+            singleLine = true
+        )
         
         OutlinedTextField(
             value = password,
             onValueChange = { password = it },
             label = { Text("Password") },
             visualTransformation = PasswordVisualTransformation(),
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            singleLine = true
         )
 
         OutlinedTextField(
@@ -83,7 +107,9 @@ fun RegistrationScreen(navController: NavController, modifier: Modifier = Modifi
             onValueChange = { confirmPassword = it },
             label = { Text("Confirm Password") },
             visualTransformation = PasswordVisualTransformation(),
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            singleLine = true
         )
 
         ExposedDropdownMenuBox(
@@ -97,7 +123,9 @@ fun RegistrationScreen(navController: NavController, modifier: Modifier = Modifi
                 readOnly = true,
                 label = { Text(if (selectedRole == "Patron") "Club to Manage" else "Club to Join") },
                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                modifier = Modifier.menuAnchor().fillMaxWidth()
+                modifier = Modifier
+                    .menuAnchor()
+                    .fillMaxWidth()
             )
             ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                 ClubData.availableClubs.forEach { club ->
@@ -111,23 +139,45 @@ fun RegistrationScreen(navController: NavController, modifier: Modifier = Modifi
         } else {
             Button(
                 onClick = {
-                    if (name.isBlank() || email.isBlank() || password.isBlank()) {
+                    val trimmedName = name.trim()
+                    val trimmedEmail = email.trim()
+                    
+                    if (trimmedName.isBlank() || trimmedEmail.isBlank() || phone.isBlank() || password.isBlank() || confirmPassword.isBlank()) {
                         Toast.makeText(context, "Please fill in all fields", Toast.LENGTH_SHORT).show()
                     } else if (password != confirmPassword) {
                         Toast.makeText(context, "Passwords do not match", Toast.LENGTH_SHORT).show()
                     } else {
                         isLoading = true
-                        auth.createUserWithEmailAndPassword(email, password).addOnCompleteListener { task ->
+                        auth.createUserWithEmailAndPassword(trimmedEmail, password).addOnCompleteListener { task ->
                             if (task.isSuccessful) {
-                                val user = User(email, name, selectedRole, selectedClub, password, 0)
-                                database.child(auth.currentUser?.uid!!).setValue(user).addOnCompleteListener {
+                                val userId = auth.currentUser?.uid ?: ""
+                                val user = User(
+                                    email = trimmedEmail,
+                                    name = trimmedName,
+                                    phone = phone,
+                                    role = selectedRole,
+                                    club = selectedClub,
+                                    password = password,
+                                    joinedClubsCount = 1,
+                                    joinedClubs = listOf(selectedClub)
+                                )
+                                
+                                val database = FirebaseDatabase.getInstance().getReference("Users")
+                                database.child(userId).setValue(user).addOnCompleteListener { dbTask ->
                                     isLoading = false
-                                    Toast.makeText(context, "Success!", Toast.LENGTH_SHORT).show()
-                                    navController.navigate("login")
+                                    if (dbTask.isSuccessful) {
+                                        Toast.makeText(context, "Registration Success!", Toast.LENGTH_SHORT).show()
+                                        navController.navigate("home/$selectedRole?club=$selectedClub&name=$trimmedName") {
+                                            popUpTo("registration") { inclusive = true }
+                                        }
+                                    } else {
+                                        // Permission Denied error from Firebase is caught here
+                                        Toast.makeText(context, "Database Error: ${dbTask.exception?.message}", Toast.LENGTH_LONG).show()
+                                    }
                                 }
                             } else {
                                 isLoading = false
-                                Toast.makeText(context, "Error: ${task.exception?.message}", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Auth Error: ${task.exception?.message}", Toast.LENGTH_SHORT).show()
                             }
                         }
                     }
@@ -135,5 +185,19 @@ fun RegistrationScreen(navController: NavController, modifier: Modifier = Modifi
                 modifier = Modifier.fillMaxWidth()
             ) { Text("Register") }
         }
+
+        TextButton(
+            onClick = {
+                navController.navigate("login")
+            }
+        ) {
+            Text("Already have an account? Login")
+        }
     }
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+fun RegistrationPreview(){
+    RegistrationScreen(rememberNavController())
 }

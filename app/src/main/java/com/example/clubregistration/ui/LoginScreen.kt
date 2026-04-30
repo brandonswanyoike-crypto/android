@@ -28,8 +28,9 @@ fun LoginScreen(navController: NavController, modifier: Modifier = Modifier) {
     var isLoading by remember { mutableStateOf(false) }
     
     val context = LocalContext.current
-    val auth = FirebaseAuth.getInstance()
-    val database = FirebaseDatabase.getInstance().getReference("Users")
+    // Remember Firebase instances to avoid re-creation on every recomposition
+    val auth = remember { FirebaseAuth.getInstance() }
+    val database = remember { FirebaseDatabase.getInstance().getReference("Users") }
 
     Column(
         modifier = modifier
@@ -91,20 +92,23 @@ fun LoginScreen(navController: NavController, modifier: Modifier = Modifier) {
         } else {
             Button(
                 onClick = {
-                    if (email.isBlank() || password.isBlank()) {
+                    val trimmedEmail = email.trim()
+                    if (trimmedEmail.isBlank() || password.isBlank()) {
                         Toast.makeText(context, "Please enter email and password", Toast.LENGTH_SHORT).show()
                     } else {
                         isLoading = true
-                        auth.signInWithEmailAndPassword(email, password)
+                        auth.signInWithEmailAndPassword(trimmedEmail, password)
                             .addOnCompleteListener { task ->
                                 if (task.isSuccessful) {
                                     val userId = auth.currentUser?.uid ?: ""
+                                    // Fetch all data in one request to pass club immediately to HomeScreen
                                     database.child(userId).get().addOnSuccessListener { snapshot ->
                                         isLoading = false
                                         val role = snapshot.child("role").getValue(String::class.java)
+                                        val club = snapshot.child("club").getValue(String::class.java) ?: ""
                                         if (role == selectedRole) {
                                             Toast.makeText(context, "Login Successful!", Toast.LENGTH_SHORT).show()
-                                            navController.navigate("home/$role") {
+                                            navController.navigate("home/$role?club=$club") {
                                                 popUpTo("login") { inclusive = true }
                                             }
                                         } else {

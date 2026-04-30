@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -28,44 +29,66 @@ import com.google.firebase.database.ValueEventListener
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(navController: NavController, role: String) {
+fun HomeScreen(navController: NavController, role: String, initialClub: String = "", initialName: String = "") {
     val context = LocalContext.current
+    val isPreview = LocalInspectionMode.current
+    
+    // Dialog States
     var showNotificationDialog by remember { mutableStateOf(false) }
+    var showMembersDialog by remember { mutableStateOf(false) }
+    var showEventsDialog by remember { mutableStateOf(false) }
+    var showJoinClubDialog by remember { mutableStateOf(false) }
+    var showMyClubsDialog by remember { mutableStateOf(false) }
     
     // Firebase references
-    val auth = FirebaseAuth.getInstance()
-    val userId = auth.currentUser?.uid ?: ""
-    val database = FirebaseDatabase.getInstance()
-    val userRef = database.getReference("Users").child(userId)
-    val requestsRef = database.getReference("Requests")
+    val auth = remember(isPreview) { if (isPreview) null else FirebaseAuth.getInstance() }
+    val userId = remember(auth) { auth?.currentUser?.uid ?: "" }
+    val database = remember(isPreview) { if (isPreview) null else FirebaseDatabase.getInstance() }
+    val userRef = remember(userId, database) { if (userId.isEmpty()) null else database?.getReference("Users")?.child(userId) }
+    val requestsRef = remember(database) { database?.getReference("Requests") }
+    val usersRef = remember(database) { database?.getReference("Users") }
 
     // State for Firebase data
-    var joinedClubsCount by remember { mutableIntStateOf(0) }
-    var userName by remember { mutableStateOf("") }
-    val joinRequests = remember { mutableStateListOf<Pair<String, String>>() } // ID to Message
+    var joinedClubsCount by remember { mutableIntStateOf(if (isPreview) 1 else 0) }
+    var userName by remember { mutableStateOf(if (isPreview) "Preview User" else initialName) }
+    var patronClub by remember { mutableStateOf(if (isPreview) "Science Club" else initialClub) }
+    val memberClubs = remember { mutableStateListOf<String>() }
+    val joinRequests = remember { mutableStateListOf<Pair<String, String>>() }
+    val clubMembers = remember { mutableStateListOf<Pair<String, String>>() } 
+    val events = remember { mutableStateListOf<String>() }
+
+    // Initial Preview Data
+    if (isPreview) {
+        if (role == "Patron") {
+            joinRequests.add("1" to "John Doe requested to join Science Club")
+            clubMembers.add("Alice Smith" to "alice@example.com")
+        } else {
+            memberClubs.add("Science Club")
+        }
+        events.add("Annual Science Fair - Oct 12")
+    }
 
     // Listen for current user data
     LaunchedEffect(userId) {
         if (userId.isNotEmpty()) {
-            userRef.addValueEventListener(object : ValueEventListener {
+            userRef?.addValueEventListener(object : ValueEventListener {
                 override fun onDataChange(snapshot: DataSnapshot) {
                     joinedClubsCount = snapshot.child("joinedClubsCount").getValue(Int::class.java) ?: 0
-                    userName = snapshot.child("name").getValue(String::class.java) ?: ""
-                }
-                override fun onCancelled(error: DatabaseError) {}
-            })
-        }
-    }
-
-    // Listen for join requests (for Patron)
-    if (role == "Patron") {
-        LaunchedEffect(Unit) {
-            requestsRef.addValueEventListener(object : ValueEventListener {
-                override fun onDataChange(snapshot: DataSnapshot) {
-                    joinRequests.clear()
-                    for (child in snapshot.children) {
-                        val msg = child.child("message").getValue(String::class.java) ?: ""
-                        joinRequests.add(child.key!! to msg)
+                    userName = snapshot.child("name").getValue(String::class.java) ?: initialName
+                    val primaryClub = snapshot.child("club").getValue(String::class.java) ?: ""
+                    
+                    memberClubs.clear()
+                    if (primaryClub.isNotEmpty()) {
+                        memberClubs.add(primaryClub)
+                        patronClub = primaryClub
+                    }
+                    
+                    // Also fetch extra clubs if they exist in a list
+                    snapshot.child("joinedClubs").children.forEach { child ->
+                        val c = child.getValue(String::class.java) ?: ""
+                        if (c.isNotEmpty() && !memberClubs.contains(c)) {
+                            memberClubs.add(c)
+                        }
                     }
                 }
                 override fun onCancelled(error: DatabaseError) {}
@@ -73,10 +96,53 @@ fun HomeScreen(navController: NavController, role: String) {
         }
     }
 
+    // Patron logic: Listen for Requests and Members
+    if (role == "Patron") {
+        LaunchedEffect(patronClub) {
+            if (patronClub.isNotEmpty()) {
+                requestsRef?.addValueEventListener(object : ValueEventListener {
+                    override fun onDataChange(snapshot: DataSnapshot) {
+                        joinRequests.clear()
+                        for (child in snapshot.children) {
+                            if (child.child("clubName").getValue(String::class.java) == patronClub) {
+                                joinRequests.add(child.key!! to (child.child("message").getValue(String::class.java) ?: ""))
+                            }
+                        }
+                    }
+                    override fun onCancelled(error: DatabaseError) {}
+                })
+
+                usersRef?.addValueEventListener(object : ValueEventListener {
+                    override fun onDataChange(snapshot: DataSnapshot) {
+                        clubMembers.clear()
+                        for (child in snapshot.children) {
+                            val roleInDb = child.child("role").getValue(String::class.java) ?: ""
+                            val primaryClubInDb = child.child("club").getValue(String::class.java) ?: ""
+                            var isMemberOfClub = primaryClubInDb == patronClub
+                            
+                            if (!isMemberOfClub) {
+                                child.child("joinedClubs").children.forEach { cChild ->
+                                    if (cChild.getValue(String::class.java) == patronClub) isMemberOfClub = true
+                                }
+                            }
+
+                            if (isMemberOfClub && roleInDb == "Member") {
+                                val name = child.child("name").getValue(String::class.java) ?: "Unknown"
+                                val email = child.child("email").getValue(String::class.java) ?: ""
+                                clubMembers.add(name to email)
+                            }
+                        }
+                    }
+                    override fun onCancelled(error: DatabaseError) {}
+                })
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (role == "Patron") "Patron Dashboard" else "Member Dashboard") },
+                title = { Text(if (role == "Patron") "Patron Dashboard ($patronClub)" else "Member Dashboard") },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color(0xFF006400),
                     titleContentColor = Color.White
@@ -97,16 +163,12 @@ fun HomeScreen(navController: NavController, role: String) {
                         }
                     }
                     IconButton(onClick = {
-                        auth.signOut()
+                        auth?.signOut()
                         navController.navigate("login") {
                             popUpTo("home") { inclusive = true }
                         }
                     }) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ExitToApp,
-                            contentDescription = "Logout",
-                            tint = Color.White
-                        )
+                        Icon(imageVector = Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Logout", tint = Color.White)
                     }
                 }
             )
@@ -129,9 +191,9 @@ fun HomeScreen(navController: NavController, role: String) {
 
             if (role == "Member") {
                 Text(
-                    text = "Clubs Joined: $joinedClubsCount / 2",
+                    text = "Clubs Joined: ${memberClubs.size} / 2",
                     fontSize = 16.sp,
-                    color = if (joinedClubsCount >= 2) Color.Red else Color.Gray,
+                    color = if (memberClubs.size >= 2) Color.Red else Color.Gray,
                     modifier = Modifier.padding(bottom = 16.dp)
                 )
             }
@@ -143,12 +205,17 @@ fun HomeScreen(navController: NavController, role: String) {
                 DashboardCard(
                     title = if (role == "Patron") "Members" else "My Clubs",
                     icon = if (role == "Patron") Icons.Default.Person else Icons.Default.Home,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    onClick = { 
+                        if (role == "Patron") showMembersDialog = true 
+                        else showMyClubsDialog = true
+                    }
                 )
                 DashboardCard(
                     title = "Events",
                     icon = Icons.Default.Info,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    onClick = { showEventsDialog = true }
                 )
             }
 
@@ -171,15 +238,10 @@ fun HomeScreen(navController: NavController, role: String) {
                         icon = Icons.Default.AddCircle,
                         modifier = Modifier.weight(1f),
                         onClick = {
-                            if (joinedClubsCount >= 2) {
+                            if (memberClubs.size >= 2) {
                                 Toast.makeText(context, "Limit reached!", Toast.LENGTH_SHORT).show()
                             } else {
-                                val request = mapOf(
-                                    "memberId" to userId,
-                                    "message" to "$userName requested to join a club"
-                                )
-                                requestsRef.push().setValue(request)
-                                Toast.makeText(context, "Request sent to Patron!", Toast.LENGTH_SHORT).show()
+                                showJoinClubDialog = true
                             }
                         }
                     )
@@ -192,10 +254,11 @@ fun HomeScreen(navController: NavController, role: String) {
             }
         }
 
+        // Dialogs...
         if (showNotificationDialog) {
             AlertDialog(
                 onDismissRequest = { showNotificationDialog = false },
-                title = { Text("Join Requests") },
+                title = { Text("Join Requests for $patronClub") },
                 text = {
                     if (joinRequests.isEmpty()) {
                         Text("No pending requests.")
@@ -206,21 +269,26 @@ fun HomeScreen(navController: NavController, role: String) {
                                     headlineContent = { Text(message) },
                                     trailingContent = {
                                         Button(onClick = {
-                                            requestsRef.child(reqId).get().addOnSuccessListener { snapshot ->
-                                                val memberId = snapshot.child("memberId").getValue(String::class.java) ?: ""
-                                                if (memberId.isNotEmpty()) {
-                                                    val memberCountRef = database.getReference("Users").child(memberId).child("joinedClubsCount")
-                                                    memberCountRef.get().addOnSuccessListener { countSnapshot ->
-                                                        val currentCount = countSnapshot.getValue(Int::class.java) ?: 0
-                                                        memberCountRef.setValue(currentCount + 1)
+                                            requestsRef?.child(reqId)?.get()?.addOnSuccessListener { snapshot ->
+                                                val mId = snapshot.child("memberId").getValue(String::class.java) ?: ""
+                                                val requestedClub = snapshot.child("clubName").getValue(String::class.java) ?: ""
+                                                if (mId.isNotEmpty() && requestedClub.isNotEmpty()) {
+                                                    val mUserRef = database?.getReference("Users")?.child(mId)
+                                                    mUserRef?.get()?.addOnSuccessListener { uSnap ->
+                                                        val currentJoinedCount = uSnap.child("joinedClubsCount").getValue(Int::class.java) ?: 0
+                                                        val joinedList = uSnap.child("joinedClubs").children.mapNotNull { it.getValue(String::class.java) }.toMutableList()
+                                                        
+                                                        if (!joinedList.contains(requestedClub)) {
+                                                            joinedList.add(requestedClub)
+                                                            mUserRef.child("joinedClubs").setValue(joinedList)
+                                                            mUserRef.child("joinedClubsCount").setValue(currentJoinedCount + 1)
+                                                        }
                                                         requestsRef.child(reqId).removeValue()
                                                         Toast.makeText(context, "Approved!", Toast.LENGTH_SHORT).show()
                                                     }
                                                 }
                                             }
-                                        }) {
-                                            Text("Approve")
-                                        }
+                                        }) { Text("Approve") }
                                     }
                                 )
                                 HorizontalDivider()
@@ -228,10 +296,132 @@ fun HomeScreen(navController: NavController, role: String) {
                         }
                     }
                 },
-                confirmButton = {
-                    TextButton(onClick = { showNotificationDialog = false }) {
-                        Text("Close")
+                confirmButton = { TextButton(onClick = { showNotificationDialog = false }) { Text("Close") } }
+            )
+        }
+
+        if (showMembersDialog) {
+            AlertDialog(
+                onDismissRequest = { showMembersDialog = false },
+                title = { Text("Members of $patronClub") },
+                text = {
+                    if (clubMembers.isEmpty()) {
+                        Text("No members in this club.")
+                    } else {
+                        LazyColumn {
+                            items(clubMembers) { (name, email) ->
+                                ListItem(
+                                    headlineContent = { Text(name) },
+                                    supportingContent = { Text(email) },
+                                    leadingContent = { Icon(Icons.Default.AccountCircle, contentDescription = null) }
+                                )
+                                HorizontalDivider()
+                            }
+                        }
                     }
+                },
+                confirmButton = { TextButton(onClick = { showMembersDialog = false }) { Text("Close") } }
+            )
+        }
+
+        if (showEventsDialog) {
+            AlertDialog(
+                onDismissRequest = { showEventsDialog = false },
+                title = { Text("Club Events") },
+                text = {
+                    if (events.isEmpty()) {
+                        Text("No upcoming events.")
+                    } else {
+                        LazyColumn {
+                            items(events) { event ->
+                                ListItem(
+                                    headlineContent = { Text(event) },
+                                    leadingContent = { Icon(Icons.Default.DateRange, contentDescription = null) }
+                                )
+                                HorizontalDivider()
+                            }
+                        }
+                    }
+                },
+                confirmButton = { TextButton(onClick = { showEventsDialog = false }) { Text("Close") } }
+            )
+        }
+
+        if (showMyClubsDialog) {
+            AlertDialog(
+                onDismissRequest = { showMyClubsDialog = false },
+                title = { Text("My Clubs") },
+                text = {
+                    LazyColumn {
+                        items(memberClubs) { club ->
+                            ListItem(
+                                headlineContent = { Text(club) },
+                                leadingContent = { Icon(Icons.Default.Home, contentDescription = null, tint = Color(0xFF006400)) }
+                            )
+                            HorizontalDivider()
+                        }
+                    }
+                },
+                confirmButton = { TextButton(onClick = { showMyClubsDialog = false }) { Text("Close") } }
+            )
+        }
+
+        if (showJoinClubDialog) {
+            var expandedDropdown by remember { mutableStateOf(false) }
+            val availableToJoin = ClubData.availableClubs.filter { !memberClubs.contains(it) }
+            var selectedJoinClub by remember { mutableStateOf(if (availableToJoin.isNotEmpty()) availableToJoin[0] else "") }
+
+            AlertDialog(
+                onDismissRequest = { showJoinClubDialog = false },
+                title = { Text("Join a New Club") },
+                text = {
+                    Column {
+                        Text("Select a club to send a join request:")
+                        Spacer(modifier = Modifier.height(16.dp))
+                        ExposedDropdownMenuBox(
+                            expanded = expandedDropdown,
+                            onExpandedChange = { expandedDropdown = !expandedDropdown }
+                        ) {
+                            OutlinedTextField(
+                                value = selectedJoinClub,
+                                onValueChange = {},
+                                readOnly = true,
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedDropdown) },
+                                modifier = Modifier.menuAnchor().fillMaxWidth()
+                            )
+                            ExposedDropdownMenu(
+                                expanded = expandedDropdown,
+                                onDismissRequest = { expandedDropdown = false }
+                            ) {
+                                availableToJoin.forEach { club ->
+                                    DropdownMenuItem(
+                                        text = { Text(club) },
+                                        onClick = {
+                                            selectedJoinClub = club
+                                            expandedDropdown = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = {
+                        if (selectedJoinClub.isNotEmpty()) {
+                            val request = mapOf(
+                                "memberId" to userId,
+                                "clubName" to selectedJoinClub,
+                                "message" to "$userName requested to join $selectedJoinClub"
+                            )
+                            requestsRef?.push()?.setValue(request)
+                            Toast.makeText(context, "Request sent to Patron!", Toast.LENGTH_SHORT).show()
+                            showJoinClubDialog = false
+                        }
+                    }) { Text("Send Request") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showJoinClubDialog = false }) { Text("Cancel") }
                 }
             )
         }
@@ -261,4 +451,10 @@ fun DashboardCard(title: String, icon: ImageVector, modifier: Modifier = Modifie
 @Composable
 fun HomePreview() {
     HomeScreen(rememberNavController(), "Member")
+}
+
+@Preview(showBackground = true)
+@Composable
+fun PatronHomePreview() {
+    HomeScreen(rememberNavController(), "Patron")
 }

@@ -25,11 +25,17 @@ fun AppNavHost(
             RegistrationScreen(navController = navController)
         }
         composable(
-            route = "home/{role}",
-            arguments = listOf(navArgument("role") { type = NavType.StringType })
+            route = "home/{role}?club={club}&name={name}",
+            arguments = listOf(
+                navArgument("role") { type = NavType.StringType },
+                navArgument("club") { type = NavType.StringType; defaultValue = "" },
+                navArgument("name") { type = NavType.StringType; defaultValue = "" }
+            )
         ) { backStackEntry ->
             val role = backStackEntry.arguments?.getString("role") ?: "Member"
-            HomeScreen(navController = navController, role = role)
+            val club = backStackEntry.arguments?.getString("club") ?: ""
+            val name = backStackEntry.arguments?.getString("name") ?: ""
+            HomeScreen(navController = navController, role = role, initialClub = club, initialName = name)
         }
     }
 }
