@@ -11,7 +11,8 @@ data class User(
     val club: String = "", // This can be the primary club (for Patron) or first club (for Member)
     val password: String = "",
     val joinedClubsCount: Int = 0,
-    val joinedClubs: List<String> = emptyList()
+    val joinedClubs: List<String> = emptyList(),
+    val pendingClubs: List<String> = emptyList() // Clubs waiting for member to register
 )
 
 data class Event(
