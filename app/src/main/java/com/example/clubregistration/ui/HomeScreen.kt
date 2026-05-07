@@ -35,7 +35,7 @@ fun HomeScreen(navController: NavController, role: String, initialClub: String =
     val isPreview = LocalInspectionMode.current
     val primaryGreen = Color(0xFF006400)
     
-    // Dialog States
+
     var showNotificationDialog by remember { mutableStateOf(false) }
     var showMembersDialog by remember { mutableStateOf(false) }
     var showEventsDialog by remember { mutableStateOf(false) }
@@ -43,7 +43,7 @@ fun HomeScreen(navController: NavController, role: String, initialClub: String =
     var showMyClubsDialog by remember { mutableStateOf(false) }
     var showAddEventDialog by remember { mutableStateOf(false) }
     
-    // Firebase references
+
     val auth = remember(isPreview) { if (isPreview) null else FirebaseAuth.getInstance() }
     val userId = remember(auth) { auth?.currentUser?.uid ?: "" }
     val database = remember(isPreview) { if (isPreview) null else FirebaseDatabase.getInstance() }
@@ -52,7 +52,7 @@ fun HomeScreen(navController: NavController, role: String, initialClub: String =
     val usersRef = remember(database) { database?.getReference("Users") }
     val eventsRef = remember(database) { database?.getReference("Events") }
 
-    // State for Firebase data
+
     var userName by remember { mutableStateOf(if (isPreview) "Preview User" else initialName) }
     var patronClub by remember { mutableStateOf(if (isPreview) "Science Club" else initialClub) }
     val memberClubs = remember { mutableStateListOf<String>() }
@@ -61,7 +61,7 @@ fun HomeScreen(navController: NavController, role: String, initialClub: String =
     val clubMembers = remember { mutableStateListOf<Triple<String, String, String>>() } // name, email, phone
     val events = remember { mutableStateListOf<Event>() }
 
-    // Initial Preview Data
+
     if (isPreview) {
         if (role == "Patron") {
             joinRequests.add("1" to "John Doe requested to join Science Club")
@@ -73,7 +73,7 @@ fun HomeScreen(navController: NavController, role: String, initialClub: String =
         events.add(Event("Annual Science Fair", "Science Club", "Oct 12", "All welcome"))
     }
 
-    // Listen for current user data
+
     LaunchedEffect(userId) {
         if (userId.isNotEmpty()) {
             userRef?.addValueEventListener(object : ValueEventListener {
@@ -105,7 +105,7 @@ fun HomeScreen(navController: NavController, role: String, initialClub: String =
         }
     }
 
-    // Events listener
+
     LaunchedEffect(role, patronClub, memberClubs.size) {
         eventsRef?.addValueEventListener(object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
@@ -113,7 +113,7 @@ fun HomeScreen(navController: NavController, role: String, initialClub: String =
                 for (child in snapshot.children) {
                     val event = child.getValue(Event::class.java)
                     if (event != null) {
-                        // Patrons see their own club events, Members see events for clubs they joined
+
                         if (role == "Patron") {
                             if (event.clubName == patronClub) events.add(event)
                         } else {
@@ -126,7 +126,7 @@ fun HomeScreen(navController: NavController, role: String, initialClub: String =
         })
     }
 
-    // Patron logic: Listen for Requests and Members
+
     if (role == "Patron") {
         LaunchedEffect(patronClub) {
             if (patronClub.isNotEmpty()) {
@@ -292,9 +292,7 @@ fun HomeScreen(navController: NavController, role: String, initialClub: String =
             }
         }
 
-        // --- Dialogs ---
 
-        // Notification Dialog
         if (showNotificationDialog) {
             AlertDialog(
                 onDismissRequest = { showNotificationDialog = false },
@@ -338,7 +336,7 @@ fun HomeScreen(navController: NavController, role: String, initialClub: String =
                             }
                         }
                     } else {
-                        // Member Notifications
+
                         if (pendingClubs.isEmpty()) {
                             Text("No new notifications.")
                         } else {
@@ -378,8 +376,7 @@ fun HomeScreen(navController: NavController, role: String, initialClub: String =
             )
         }
 
-        // Members Dialog
-        if (showMembersDialog) {
+      if (showMembersDialog) {
             AlertDialog(
                 onDismissRequest = { showMembersDialog = false },
                 title = { Text("Club Members", color = primaryGreen, fontWeight = FontWeight.Bold) },
@@ -403,7 +400,7 @@ fun HomeScreen(navController: NavController, role: String, initialClub: String =
             )
         }
 
-        // Events Dialog
+
         if (showEventsDialog) {
             AlertDialog(
                 onDismissRequest = { showEventsDialog = false },
@@ -437,7 +434,7 @@ fun HomeScreen(navController: NavController, role: String, initialClub: String =
             )
         }
 
-        // Add Event Dialog (for Patrons)
+
         if (showAddEventDialog) {
             var eventTitle by remember { mutableStateOf("") }
             var eventDate by remember { mutableStateOf("") }
@@ -493,7 +490,7 @@ fun HomeScreen(navController: NavController, role: String, initialClub: String =
             )
         }
 
-        // My Clubs Dialog
+
         if (showMyClubsDialog) {
             AlertDialog(
                 onDismissRequest = { showMyClubsDialog = false },
@@ -513,7 +510,7 @@ fun HomeScreen(navController: NavController, role: String, initialClub: String =
             )
         }
 
-        // Registration Prompt Dialog (for Members)
+
         if (role == "Member" && pendingClubs.isNotEmpty()) {
             val clubToRegister = pendingClubs[0]
             AlertDialog(
@@ -544,7 +541,7 @@ fun HomeScreen(navController: NavController, role: String, initialClub: String =
             )
         }
 
-        // Join Club Dialog
+
         if (showJoinClubDialog) {
             var expandedDropdown by remember { mutableStateOf(false) }
             val availableToJoin = ClubData.availableClubs.filter { !memberClubs.contains(it) && !pendingClubs.contains(it) }

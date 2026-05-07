@@ -39,8 +39,7 @@ fun LoginScreen(navController: NavController, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val isPreview = LocalInspectionMode.current
     
-    // Remember Firebase instances to avoid re-creation on every recomposition
-    // Avoid initialization during Preview to prevent crashes
+
     val auth = remember(isPreview) { if (isPreview) null else FirebaseAuth.getInstance() }
     val database = remember(isPreview) { if (isPreview) null else FirebaseDatabase.getInstance().getReference("Users") }
 
